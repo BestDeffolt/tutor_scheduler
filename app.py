@@ -4,7 +4,7 @@ import json
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import text as sa_text
+from flask_cors import CORS, cross_origin
 import uuid
 
 app = Flask(__name__)
@@ -92,6 +92,7 @@ class ResultScheduleModel(db.Model):
 
 
 @app.route('/student_form', methods=['POST', 'GET'])
+@cross_origin(supports_credentials=True)
 def handle_student_records():
     if request.method == 'POST':
         if request.is_json:
@@ -119,6 +120,7 @@ def handle_student_records():
 
 
 @app.route('/teacher_form', methods=['POST', 'GET'])
+@cross_origin(supports_credentials=True)
 def handle_teacher_records():
     if request.method == 'POST':
         if request.is_json:
@@ -146,6 +148,7 @@ def handle_teacher_records():
 
 
 @app.route('/instruments', methods=['POST', 'GET'])
+@cross_origin(supports_credentials=True)
 def handle_instruments():
     if request.method == 'POST':
         if request.is_json:
@@ -168,6 +171,7 @@ def handle_instruments():
 
 
 @app.route('/result', methods=['POST', 'GET'])
+@cross_origin(supports_credentials=True)
 def handle_result():
     if request.method == 'POST':
         student_records = StudentFormModel.query.order_by(StudentFormModel.prefer_start_time, StudentFormModel.prefer_end_time).all()
