@@ -1,7 +1,7 @@
 import datetime
 import json
 
-from flask import Flask, request
+from flask import Flask, request, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS, cross_origin
@@ -44,7 +44,7 @@ class TeacherFormModel(db.Model):
     last_name = db.Column(db.String())
     work_start_time = db.Column(db.Time())
     work_end_time = db.Column(db.Time())
-    instrument = db.Column(db.UUID(as_uuid=True), default=uuid.uuid4)
+    instrument = db.Column(db.ARRAY(db.UUID(as_uuid=True)), default=uuid.uuid4)
 
     def __init__(self, name, last_name, work_start_time, work_end_time, instrument):
         self.name = name
@@ -78,13 +78,15 @@ class ResultScheduleModel(db.Model):
     teacher = db.Column(db.UUID(as_uuid=True), default=uuid.uuid4)
     start_time = db.Column(db.Time())
     end_time = db.Column(db.Time())
+    day = db.Column(db.String())
     instrument = db.Column(db.UUID(as_uuid=True), default=uuid.uuid4)
 
-    def __init__(self, name, last_name, start_time, end_time, instrument):
-        self.name = name
-        self.last_name = last_name
+    def __init__(self, student, teacher, start_time, end_time, day, instrument):
+        self.student = student
+        self.teacher = teacher
         self.start_time = start_time
         self.end_time = end_time
+        self.day = day
         self.instrument = instrument
 
     def __repr__(self):
@@ -95,16 +97,20 @@ class ResultScheduleModel(db.Model):
 @cross_origin(supports_credentials=True)
 def handle_student_records():
     if request.method == 'POST':
-        if request.is_json:
-            data = request.get_json()
-            new_record = StudentFormModel(name=data['name'], last_name=data['last_name'], prefer_start_time=data['prefer_start_time'],
-                                  prefer_end_time=data['prefer_end_time'], day=data['day'], instrument=data['instrument'])
-            db.session.add(new_record)
-            db.session.commit()
-            return {"message": "Новая запись успешно добавлена"}
-        else:
-            return {"error": "The request payload is not in JSON format"}
-
+        try:
+            if request.is_json:
+                data = request.get_json()
+                new_record = StudentFormModel(name=data['name'], last_name=data['last_name'],
+                                              prefer_start_time=data['prefer_start_time'],
+                                              prefer_end_time=data['prefer_end_time'], day=data['day'],
+                                              instrument=data['instrument'])
+                db.session.add(new_record)
+                db.session.commit()
+                return {"message": "Новая запись успешно добавлена"}
+            else:
+                return {"error": "The request payload is not in JSON format"}
+        except:
+            return {"Message": "Пока"}
     elif request.method == 'GET':
         records = StudentFormModel.query.all()
         results = [
@@ -116,7 +122,7 @@ def handle_student_records():
                 "instrument": record.instrument,
             } for record in records]
 
-        return {"count": len(results), "record": results}
+        return json.dumps(results, default=str)
 
 
 @app.route('/teacher_form', methods=['POST', 'GET'])
@@ -125,8 +131,9 @@ def handle_teacher_records():
     if request.method == 'POST':
         if request.is_json:
             data = request.get_json()
-            new_record = TeacherFormModel(name=data['name'], last_name=data['last_name'], work_start_time=data['work_start_time'],
-                                  work_end_time=data['work_end_time'], instrument=data['instrument'])
+            new_record = TeacherFormModel(name=data['name'], last_name=data['last_name'],
+                                          work_start_time=data['work_start_time'],
+                                          work_end_time=data['work_end_time'], instrument=data['instrument'])
             db.session.add(new_record)
             db.session.commit()
             return {"message": "Новая запись успешно добавлена"}
@@ -144,7 +151,7 @@ def handle_teacher_records():
                 "instrument": record.instrument,
             } for record in records]
 
-        return {"count": len(results), "record": results}
+        return json.dumps(results, default=str)
 
 
 @app.route('/instruments', methods=['POST', 'GET'])
@@ -167,38 +174,91 @@ def handle_instruments():
                 "instrument": record.instrument,
             } for record in records]
 
-        return {"count": len(results), "record": results}
+        return results
+
+
+def shortener(record, is_person):
+    if record != None:
+        id = record.id
+        try:
+            name = record.name
+        except:
+            print(record.instrument)
+            name = record.instrument
+        if is_person:
+            name = record.name + " " + record.last_name
+        return {
+            'id': id,
+            'name': name
+        }
+    else:
+        return None
+
 
 
 @app.route('/result', methods=['POST', 'GET'])
 @cross_origin(supports_credentials=True)
 def handle_result():
     if request.method == 'POST':
-        student_records = StudentFormModel.query.order_by(StudentFormModel.prefer_start_time, StudentFormModel.prefer_end_time).all()
-        results = [
+        student_records = StudentFormModel.query.order_by(StudentFormModel.prefer_start_time,
+                                                          StudentFormModel.prefer_end_time).all()
+        teacher_records = TeacherFormModel.query.order_by(TeacherFormModel.work_start_time,
+                                                          TeacherFormModel.work_end_time).all()
+        student_tuple = [
             {
                 "id": record.id,
                 "name": record.name,
                 "last_name": record.last_name,
                 "prefer_start_time": record.prefer_start_time,
                 "prefer_end_time": record.prefer_end_time,
+                "day": record.day,
                 "instrument": record.instrument,
+                "active": 'true'
             } for record in student_records]
-        # res = json.dumps(results, default=json_util.default)
-        return {"message": json.dumps(results, default=str)}
-            # return {"message": "Расписание составлено"}
-        #else:
-            #return {"error": "The request payload is not in JSON format"}
-    elif request.method == 'GET':
-        records = ResultScheduleModel.query.all()
-        results = [
+        teacher_tuple = [
             {
                 "id": record.id,
-                "student": record.student,
-                "teacher": record.teacher,
-                "start_time": record.start_time,
-                "end_time": record.end_time,
+                "name": record.name,
+                "last_name": record.last_name,
+                "work_start_time": record.work_start_time,
+                "work_end_time": record.work_end_time,
                 "instrument": record.instrument,
-            } for record in records]
+            } for record in teacher_records]
+        result = []
+        ResultScheduleModel.query.delete()
+        for i in range(len(teacher_tuple)):
+            for j in range(len(student_tuple)):
+                for z in range(len(teacher_tuple[i]['instrument'])):
+                    if teacher_tuple[i]['work_start_time'] <= student_tuple[j]['prefer_start_time'] and \
+                            student_tuple[j]['prefer_end_time'] <= teacher_tuple[i]['work_end_time'] and \
+                            student_tuple[j]['active'] == 'true' and student_tuple[j]['instrument'] == teacher_tuple[i]['instrument'][z]:
+                        student_tuple[j]['active'] = 'false'
+                        student = str(student_tuple[j]['id'])
+                        result.append({'student': student, 'teacher': teacher_tuple[i]['id'],
+                                        'start_time': str(student_tuple[j]['prefer_start_time']),
+                                        'end_time': str(student_tuple[j]['prefer_end_time']),
+                                        'day': str(student_tuple[j]['day']),
+                                        'instrument': teacher_tuple[i]['instrument'][z]})
+        for record in result:
+            db.session.add(ResultScheduleModel(student=record['student'], teacher=record['teacher'], start_time=record['start_time'],
+                                               end_time=record['end_time'], day=record['day'], instrument=record['instrument']))
+            db.session.commit()
+        return Response("{'message':'OK'}", status=201, mimetype='application/json')
+    elif request.method == 'GET':
+        records = ResultScheduleModel.query.all()
+        results = []
+        for record in records:
+            teacher = shortener(TeacherFormModel.query.get(record.teacher), True)
+            student = shortener(StudentFormModel.query.get(record.student), True)
+            instrument = shortener(InstrumentsModel.query.get(record.instrument), False)
+            results.append({
+                    "id": record.id,
+                    "student": student,
+                    "teacher": teacher,
+                    "start_time": record.start_time,
+                    "end_time": record.end_time,
+                    "day": record.day,
+                    "instrument": instrument,
+                })
 
-        return {"count": len(results), "record": results}
+        return json.dumps(results, default=str)
