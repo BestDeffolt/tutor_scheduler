@@ -44,7 +44,7 @@ class TeacherFormModel(db.Model):
     last_name = db.Column(db.String())
     work_start_time = db.Column(db.Time())
     work_end_time = db.Column(db.Time())
-    instrument = db.Column(db.UUID(as_uuid=True), default=uuid.uuid4)
+    instrument = db.Column(db.ARRAY(db.UUID(as_uuid=True)), default=uuid.uuid4)
 
     def __init__(self, name, last_name, work_start_time, work_end_time, instrument):
         self.name = name
@@ -122,7 +122,7 @@ def handle_student_records():
                 "instrument": record.instrument,
             } for record in records]
 
-        return {"count": len(results), "record": results}
+        return json.dumps(results, default=str)
 
 
 @app.route('/teacher_form', methods=['POST', 'GET'])
@@ -151,7 +151,7 @@ def handle_teacher_records():
                 "instrument": record.instrument,
             } for record in records]
 
-        return {"count": len(results), "record": results}
+        return json.dumps(results, default=str)
 
 
 @app.route('/instruments', methods=['POST', 'GET'])
@@ -175,6 +175,25 @@ def handle_instruments():
             } for record in records]
 
         return results
+
+
+def shortener(record, is_person):
+    if record != None:
+        id = record.id
+        try:
+            name = record.name
+        except:
+            print(record.instrument)
+            name = record.instrument
+        if is_person:
+            name = record.name + " " + record.last_name
+        return {
+            'id': id,
+            'name': name
+        }
+    else:
+        return None
+
 
 
 @app.route('/result', methods=['POST', 'GET'])
@@ -206,36 +225,40 @@ def handle_result():
                 "instrument": record.instrument,
             } for record in teacher_records]
         result = []
-        for x in range(len(student_tuple)):
-            for i in range(len(teacher_tuple)):
-                for j in range(len(student_tuple)):
+        ResultScheduleModel.query.delete()
+        for i in range(len(teacher_tuple)):
+            for j in range(len(student_tuple)):
+                for z in range(len(teacher_tuple[i]['instrument'])):
                     if teacher_tuple[i]['work_start_time'] <= student_tuple[j]['prefer_start_time'] and \
                             student_tuple[j]['prefer_end_time'] <= teacher_tuple[i]['work_end_time'] and \
-                            student_tuple[j]['active'] == 'true' and student_tuple[j]['instrument'] == teacher_tuple[i]['instrument']:
+                            student_tuple[j]['active'] == 'true' and student_tuple[j]['instrument'] == teacher_tuple[i]['instrument'][z]:
                         student_tuple[j]['active'] = 'false'
                         student = str(student_tuple[j]['id'])
                         result.append({'student': student, 'teacher': teacher_tuple[i]['id'],
                                         'start_time': str(student_tuple[j]['prefer_start_time']),
                                         'end_time': str(student_tuple[j]['prefer_end_time']),
                                         'day': str(student_tuple[j]['day']),
-                                        'instrument': student_tuple[i]['instrument']})
+                                        'instrument': teacher_tuple[i]['instrument'][z]})
         for record in result:
-            print(record['student'])
             db.session.add(ResultScheduleModel(student=record['student'], teacher=record['teacher'], start_time=record['start_time'],
                                                end_time=record['end_time'], day=record['day'], instrument=record['instrument']))
             db.session.commit()
         return Response("{'message':'OK'}", status=201, mimetype='application/json')
     elif request.method == 'GET':
         records = ResultScheduleModel.query.all()
-        results = [
-            {
-                "id": record.id,
-                "student": record.student,
-                "teacher": record.teacher,
-                "start_time": record.start_time,
-                "end_time": record.end_time,
-                "day": record.day,
-                "instrument": record.instrument,
-            } for record in records]
+        results = []
+        for record in records:
+            teacher = shortener(TeacherFormModel.query.get(record.teacher), True)
+            student = shortener(StudentFormModel.query.get(record.student), True)
+            instrument = shortener(InstrumentsModel.query.get(record.instrument), False)
+            results.append({
+                    "id": record.id,
+                    "student": student,
+                    "teacher": teacher,
+                    "start_time": record.start_time,
+                    "end_time": record.end_time,
+                    "day": record.day,
+                    "instrument": instrument,
+                })
 
         return json.dumps(results, default=str)
