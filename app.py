@@ -8,7 +8,7 @@ from flask_cors import CORS, cross_origin
 import uuid
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://postgres:postgres@192.168.56.101:5432/tutor"
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://postgres:postgres@localhost:5432/tutor"
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
@@ -183,7 +183,6 @@ def shortener(record, is_person):
         try:
             name = record.name
         except:
-            print(record.instrument)
             name = record.instrument
         if is_person:
             name = record.name + " " + record.last_name
@@ -193,7 +192,6 @@ def shortener(record, is_person):
         }
     else:
         return None
-
 
 
 @app.route('/result', methods=['POST', 'GET'])
@@ -225,23 +223,59 @@ def handle_result():
                 "instrument": record.instrument,
             } for record in teacher_records]
         result = []
+        weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
         ResultScheduleModel.query.delete()
+
+        for i in range(len(teacher_tuple)):
+            for x in weekdays:
+                cache = []
+                for j in range(len(student_tuple)):
+                    if teacher_tuple[i]['name'] == "Резерв":
+                        break
+                    else:
+                        if student_tuple[j]['day'] == x:
+                            student_instrument = student_tuple[j]['instrument']
+                            teacher_instruments = teacher_tuple[i]['instrument']
+                            if student_instrument in teacher_instruments:
+                                if student_tuple[j]['prefer_start_time'] in cache:
+                                    student_tuple[j]['active'] = 'res'
+                                else:
+                                    for z in range(len(teacher_tuple[i]['instrument'])):
+                                        if student_tuple[j]['active'] == 'true':
+                                            if student_tuple[j]['instrument'] == teacher_tuple[i]['instrument'][z]:
+                                                if teacher_tuple[i]['work_start_time'] <= student_tuple[j][
+                                                    'prefer_start_time'] and \
+                                                        student_tuple[j]['prefer_end_time'] <= teacher_tuple[i]['work_end_time']:
+                                                    student_tuple[j]['active'] = 'false'
+                                                    result.append({'student': student_tuple[j]['id'], 'teacher': str(teacher_tuple[i]['id']),
+                                                                   'start_time': str(student_tuple[j]['prefer_start_time']),
+                                                                   'end_time': str(student_tuple[j]['prefer_end_time']),
+                                                                   'day': str(x),
+                                                                   'instrument': teacher_tuple[i]['instrument'][z]})
+                                if student_tuple[j]['prefer_start_time'] not in cache:
+                                    cache.append(student_tuple[j]['prefer_start_time'])
+
+        for n in range(len(student_tuple)):
+            if student_tuple[n]['active'] == 'true':
+                student_tuple[n]['active'] = 'res'
+
         for i in range(len(teacher_tuple)):
             for j in range(len(student_tuple)):
                 for z in range(len(teacher_tuple[i]['instrument'])):
                     if teacher_tuple[i]['work_start_time'] <= student_tuple[j]['prefer_start_time'] and \
                             student_tuple[j]['prefer_end_time'] <= teacher_tuple[i]['work_end_time'] and \
-                            student_tuple[j]['active'] == 'true' and student_tuple[j]['instrument'] == teacher_tuple[i]['instrument'][z]:
-                        student_tuple[j]['active'] = 'false'
-                        student = str(student_tuple[j]['id'])
-                        result.append({'student': student, 'teacher': teacher_tuple[i]['id'],
-                                        'start_time': str(student_tuple[j]['prefer_start_time']),
-                                        'end_time': str(student_tuple[j]['prefer_end_time']),
-                                        'day': str(student_tuple[j]['day']),
-                                        'instrument': teacher_tuple[i]['instrument'][z]})
+                            student_tuple[j]['active'] == 'res' and student_tuple[j]['instrument'] == teacher_tuple[i]['instrument'][z] and teacher_tuple[i]['name'] == "Резерв":
+                            result.append({'student': str(student_tuple[j]['id']), 'teacher': teacher_tuple[i]['id'],
+                                           'start_time': str(student_tuple[j]['prefer_start_time']),
+                                           'end_time': str(student_tuple[j]['prefer_end_time']),
+                                           'day': str(student_tuple[j]['day']),
+                                           'instrument': teacher_tuple[i]['instrument'][z]})
+
         for record in result:
-            db.session.add(ResultScheduleModel(student=record['student'], teacher=record['teacher'], start_time=record['start_time'],
-                                               end_time=record['end_time'], day=record['day'], instrument=record['instrument']))
+            db.session.add(ResultScheduleModel(student=record['student'], teacher=record['teacher'],
+                                               start_time=record['start_time'],
+                                               end_time=record['end_time'], day=record['day'],
+                                               instrument=record['instrument']))
             db.session.commit()
         return Response("{'message':'OK'}", status=201, mimetype='application/json')
     elif request.method == 'GET':
@@ -252,13 +286,13 @@ def handle_result():
             student = shortener(StudentFormModel.query.get(record.student), True)
             instrument = shortener(InstrumentsModel.query.get(record.instrument), False)
             results.append({
-                    "id": record.id,
-                    "student": student,
-                    "teacher": teacher,
-                    "start_time": record.start_time,
-                    "end_time": record.end_time,
-                    "day": record.day,
-                    "instrument": instrument,
-                })
+                "id": record.id,
+                "student": student,
+                "teacher": teacher,
+                "start_time": record.start_time,
+                "end_time": record.end_time,
+                "day": record.day,
+                "instrument": instrument,
+            })
 
         return json.dumps(results, default=str)
